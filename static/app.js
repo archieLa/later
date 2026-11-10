@@ -17,6 +17,8 @@ function renderLast() {
   $("reopen").href = last.url;
   $("star").textContent = last.starred ? "★ Unstar" : "☆ Star";
   $("star").setAttribute("aria-pressed", String(last.starred));
+  $("requeue").textContent = last.is_read ? "Save for later again" : "Saved for later again";
+  $("requeue").disabled = !last.is_read;
 }
 async function refresh() {
   const data = await api("/api/state");
@@ -70,6 +72,15 @@ document.querySelectorAll("[data-view]").forEach(el => el.addEventListener("clic
 $("pop").addEventListener("click", () => pop($("mode").value));
 $("pop-starred").addEventListener("click", () => pop("starred"));
 $("star").addEventListener("click", async () => { if (!last) return; $("star").disabled = true; try { await setStar(last, !last.starred); } catch (error) { message(error.message, true); } finally { $("star").disabled = false; } });
+$("requeue").addEventListener("click", async () => {
+  if (!last || !last.is_read) return;
+  $("requeue").disabled = true;
+  try {
+    await api(`/api/items/${last.id}/unread`, "POST", {});
+    await refresh();
+    message("Saved for later again. This link is unread and can be picked another time.");
+  } catch (error) { message(error.message, true); renderLast(); }
+});
 $("add-form").addEventListener("submit", async event => {
   event.preventDefault(); const button = event.target.querySelector("button"); button.disabled = true;
   try { await api("/api/items", "POST", {url: $("url").value, description: $("description").value}); event.target.reset(); await refresh(); message("Saved for later."); $("url").focus(); }

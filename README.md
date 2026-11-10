@@ -46,6 +46,7 @@ Use `LATER_HOST=0.0.0.0` for LAN access. This personal app has no login: everyon
 
 - **Add a link:** paste a full `http://` or `https://` URL. The description is optional.
 - **Pick a link:** choose unread links or all links. A random pick is immediately marked read and opens in a new tab. Keep the Later tab open to star/unstar it or open the last pick again.
+- **Too long for right now?** Click **Save for later again** on the last pick to mark it unread. It stays available to reopen and keeps its favorite status. It can be picked again immediately, including on your next unread pick.
 - **Starred:** browse favorites, unstar them, or randomly open one again. Random starred picks also become the last pick.
 
 If the browser blocks the new tab, use **Open again** on the selected item. Read means picked, even if its page fails to load. All/Starred selections may repeat items. The last pick and favorites are shared across devices and survive restarts.

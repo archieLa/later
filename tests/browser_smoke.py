@@ -109,8 +109,20 @@ def run(engines, screenshots=None):
                     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
                     if screenshots:
                         page.screenshot(path=str(screenshots / f"{engine}-backups-mobile.png"), full_page=True)
+                    page.get_by_role("button", name="Pick a link", exact=True).click()
+                    page.get_by_role("button", name="Save for later again", exact=True).click()
+                    expect(page.get_by_role("status")).to_contain_text("This link is unread")
+                    expect(page.locator("#counts")).to_have_text("1 unread · 1 saved")
+                    expect(page.locator("#requeue")).to_be_disabled()
+                    page.reload()
+                    expect(page.locator("#counts")).to_have_text("1 unread · 1 saved")
+                    expect(page.locator("#requeue")).to_be_disabled()
+                    page.evaluate("window.open = () => null")
+                    page.locator("#pop").click()
+                    expect(page.locator("#counts")).to_have_text("0 unread · 1 saved")
+                    expect(page.locator("#requeue")).to_be_enabled()
                     assert not errors, errors
-                    print(f"PASS {engine}: add, pop/new tab, read state, star/unstar, reload, reopen, starred pop, empty queue, blocked popup, responsive layout, backup download/upload, cancel restore, invalid file")
+                    print(f"PASS {engine}: add, pop/new tab, read state, star/unstar, reload, reopen, starred pop, empty queue, blocked popup, responsive layout, backup download/upload, cancel restore, invalid file, mark unread and repick")
                 finally:
                     browser.close()
                     server.shutdown()

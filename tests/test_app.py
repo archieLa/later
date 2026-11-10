@@ -109,6 +109,32 @@ class LaterTests(unittest.TestCase):
         self.assertEqual(self.pop().json["item"]["description"], entry["description"])
         self.assertEqual(self.client.get("/api/state").json["counts"]["total"], 1)
 
+    def test_save_for_later_again_preserves_link_favorite_and_last(self):
+        entry = self.add(description="A long video")
+        self.pop()
+        self.write(f"/api/items/{entry['id']}/star", {"starred": True}, "PATCH")
+        response = self.write(f"/api/items/{entry['id']}/unread", {})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json["item"]["is_read"])
+        self.assertTrue(response.json["item"]["starred"])
+        self.assertEqual(response.json["item"]["description"], "A long video")
+        state = self.client.get("/api/state").json
+        self.assertEqual(state["counts"], {"total": 1, "unread": 1, "starred": 1})
+        self.assertEqual(state["last"]["id"], entry["id"])
+        self.assertFalse(state["last"]["is_read"])
+        # Repeating the request is harmless and does not duplicate the link.
+        self.assertEqual(self.write(f"/api/items/{entry['id']}/unread", {}).status_code, 200)
+        restarted = create_app({"TESTING": True, "DATABASE": self.database}).test_client()
+        self.assertFalse(restarted.get("/api/state").json["last"]["is_read"])
+        picked = self.pop().json["item"]
+        self.assertEqual(picked["id"], entry["id"])
+        self.assertTrue(picked["is_read"])
+        self.assertTrue(picked["starred"])
+
+    def test_save_for_later_again_missing_link_and_write_protection(self):
+        self.assertEqual(self.write("/api/items/999/unread", {}).status_code, 404)
+        self.assertEqual(self.client.post("/api/items/1/unread", json={}).status_code, 403)
+
     def test_backup_roundtrip_preserves_everything(self):
         first = self.add(description="A favorite — café")
         self.pop()

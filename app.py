@@ -215,6 +215,14 @@ def create_app(test_config=None):
             return jsonify(error="Link not found."), 404
         return jsonify(item=item(db().execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()))
 
+    @app.post("/api/items/<int:item_id>/unread")
+    def mark_unread(item_id):
+        with db():
+            cursor = db().execute("UPDATE items SET is_read=0 WHERE id=?", (item_id,))
+        if not cursor.rowcount:
+            return jsonify(error="Link not found."), 404
+        return jsonify(item=item(db().execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()))
+
     return app
 
 
