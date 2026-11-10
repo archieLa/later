@@ -34,7 +34,14 @@ If the browser blocks the new tab, use **Open again** on the selected item. Read
 
 ## Data and backups
 
-The database is created automatically at `instance/later.sqlite3` (or `LATER_DATABASE`). It is excluded from Git. To back up, stop the server and copy the database file; restore it to the same path before restarting. Keep the database directory writable by the server user. Updating the code does not clear saved links.
+Open **Backups** at the bottom of the app:
+
+- **Download backup** saves a dated `.json` file containing every link, description, read status, favorite, and the last pick. You can keep using the server while downloading.
+- **Load a backup** lets you choose that file from your device, then **Restore backup** asks you to confirm replacing the current queue. Download a backup of the current queue first if you want to keep it. Backups can move between your Mac and Pi.
+
+Restores accept Later version 1 JSON backups up to 10 MB. Invalid files leave the queue unchanged; valid restores replace everything together and take effect immediately, without restarting. An empty backup clears the queue after confirmation.
+
+The database is created automatically at `instance/later.sqlite3` (or `LATER_DATABASE`) and excluded from Git. Keep its directory writable by the server user. Updating the code does not clear saved links.
 
 ## Raspberry Pi autostart
 

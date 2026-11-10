@@ -1,10 +1,60 @@
 """Later: a small, personal link queue."""
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, render_template, request
+
+
+BACKUP_LIMIT = 10 * 1024 * 1024
+
+
+def valid_url(url):
+    if not isinstance(url, str) or not url or len(url) > 4096:
+        return False
+    try:
+        parsed = urlsplit(url)
+        return (parsed.scheme.lower() in ("http", "https") and bool(parsed.hostname)
+                and parsed.port != 0 and not parsed.username and not parsed.password
+                and not any(c.isspace() or ord(c) < 32 for c in url))
+    except ValueError:
+        return False
+
+
+def validate_backup(data):
+    """Validate everything before starting a transaction or changing saved links."""
+    if data.get("app") != "Later" or type(data.get("version")) is not int or data["version"] != 1:
+        raise ValueError("Choose a supported Later backup (version 1).")
+    rows = data.get("items")
+    if not isinstance(rows, list):
+        raise ValueError("The backup must contain a list of links.")
+    ids = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"id", "url", "description", "is_read", "starred", "created_at"}:
+            raise ValueError("The backup contains an incomplete link.")
+        identifier = row["id"]
+        if type(identifier) is not int or not 0 < identifier < 2**53 or identifier in ids:
+            raise ValueError("The backup contains invalid or duplicate link IDs.")
+        ids.add(identifier)
+        if (not valid_url(row["url"]) or not isinstance(row["description"], str)
+                or len(row["description"]) > 2000 or type(row["is_read"]) is not bool
+                or type(row["starred"]) is not bool):
+            raise ValueError("The backup contains an invalid link or status.")
+        timestamp = row["created_at"]
+        if not isinstance(timestamp, str) or len(timestamp) > 40:
+            raise ValueError("The backup contains an invalid date.")
+        try:
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            # Reject text that SQLite cannot store, including unpaired surrogates.
+            (row["url"] + row["description"] + timestamp).encode("utf-8")
+        except (ValueError, UnicodeError):
+            raise ValueError("The backup contains invalid text or dates.") from None
+    last_id = data.get("last_item_id")
+    if "last_item_id" not in data or (last_id is not None and (type(last_id) is not int or last_id not in ids)):
+        raise ValueError("The backup's last pick does not match a saved link.")
+    return rows, last_id
 
 
 def create_app(test_config=None):
@@ -57,6 +107,8 @@ def create_app(test_config=None):
 
     @app.before_request
     def protect_writes():
+        if request.endpoint == "restore_backup":
+            request.max_content_length = BACKUP_LIMIT
         if request.method in ("POST", "PATCH", "DELETE"):
             # A cross-origin form cannot supply this header or JSON; no CORS is enabled.
             if request.headers.get("X-Later") != "1" or not request.is_json:
@@ -74,7 +126,7 @@ def create_app(test_config=None):
 
     @app.errorhandler(413)
     def too_large(error):
-        return jsonify(error="That entry is too large."), 413
+        return jsonify(error="Backup files must be under 10 MB." if request.endpoint == "restore_backup" else "That entry is too large."), 413
 
     @app.get("/")
     def index():
@@ -86,6 +138,38 @@ def create_app(test_config=None):
         last = db().execute("SELECT items.* FROM items JOIN state ON items.id=state.item_id WHERE state.key='last'").fetchone()
         return jsonify(counts=dict(counts), last=item(last))
 
+    @app.get("/api/backup")
+    def download_backup():
+        connection = db()
+        # Both reads share one SQLite snapshot, even while another device picks a link.
+        with connection:
+            connection.execute("BEGIN")
+            rows = [item(row) for row in connection.execute("SELECT * FROM items ORDER BY id")]
+            last = connection.execute("SELECT item_id FROM state WHERE key='last'").fetchone()
+        response = jsonify(app="Later", version=1, items=rows,
+                           last_item_id=last["item_id"] if last else None)
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
+        response.headers["Content-Disposition"] = f'attachment; filename="later-backup-{date}.json"'
+        return response
+
+    @app.post("/api/restore")
+    def restore_backup():
+        try:
+            rows, last_id = validate_backup(request.get_json())
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+        connection = db()
+        # Replace data atomically; validation and database errors leave the old queue intact.
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM state")
+            connection.execute("DELETE FROM items")
+            connection.executemany(
+                "INSERT INTO items (id,url,description,is_read,starred,created_at) VALUES (:id,:url,:description,:is_read,:starred,:created_at)", rows)
+            if last_id is not None:
+                connection.execute("INSERT INTO state (key,item_id) VALUES ('last',?)", (last_id,))
+        return jsonify(restored=len(rows))
+
     @app.post("/api/items")
     def add():
         data = request.get_json()
@@ -93,13 +177,7 @@ def create_app(test_config=None):
         if not isinstance(url, str) or not isinstance(description, str):
             return jsonify(error="Enter a URL and an optional text description."), 400
         url, description = url.strip(), description.strip()
-        try:
-            parsed = urlsplit(url)
-            valid = parsed.scheme.lower() in ("http", "https") and bool(parsed.hostname) and parsed.port != 0
-            valid = valid and not parsed.username and not parsed.password and not any(c.isspace() or ord(c) < 32 for c in url)
-        except ValueError:
-            valid = False
-        if not valid or len(url) > 4096 or len(description) > 2000:
+        if not valid_url(url) or len(description) > 2000:
             return jsonify(error="Use a full http:// or https:// URL (up to 4,096 characters) and a description up to 2,000 characters."), 400
         with db():
             cursor = db().execute("INSERT INTO items (url, description) VALUES (?, ?)", (url, description))

@@ -1,6 +1,10 @@
+import copy
+import json
+import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 from app import create_app
@@ -104,6 +108,87 @@ class LaterTests(unittest.TestCase):
         entry = self.add("https://example.com/?q='", "<script>alert(1)</script>'); DROP TABLE items;--")
         self.assertEqual(self.pop().json["item"]["description"], entry["description"])
         self.assertEqual(self.client.get("/api/state").json["counts"]["total"], 1)
+
+    def test_backup_roundtrip_preserves_everything(self):
+        first = self.add(description="A favorite — café")
+        self.pop()
+        self.write(f"/api/items/{first['id']}/star", {"starred": True}, "PATCH")
+        self.add("https://example.org/video", "")
+        response = self.client.get("/api/backup")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment; filename="later-backup-', response.headers["Content-Disposition"])
+        self.assertEqual(response.mimetype, "application/json")
+        backup = response.json
+        self.assertEqual(backup["last_item_id"], first["id"])
+        self.assertTrue(backup["items"][0]["starred"])
+        self.assertTrue(backup["items"][0]["is_read"])
+        self.assertFalse(backup["items"][1]["is_read"])
+        self.add("https://extra.example.com")
+        self.assertEqual(self.write("/api/restore", backup).json, {"restored": 2})
+        self.assertEqual(self.client.get("/api/backup").json, backup)
+        restarted = create_app({"TESTING": True, "DATABASE": self.database}).test_client()
+        self.assertEqual(restarted.get("/api/backup").json, backup)
+        self.assertEqual(self.pop().json["item"]["url"], "https://example.org/video")
+        self.assertGreater(self.add("https://new.example.com")["id"], backup["items"][-1]["id"])
+
+    def test_restore_empty_backup_clears_queue_and_last(self):
+        empty = self.client.get("/api/backup").json
+        self.add()
+        self.pop()
+        self.assertEqual(self.write("/api/restore", empty).status_code, 200)
+        self.assertEqual(self.client.get("/api/backup").json, empty)
+        self.assertIsNone(self.client.get("/api/state").json["last"])
+
+    def test_restore_invalid_files_leave_existing_data_unchanged(self):
+        self.add()
+        self.pop()
+        backup = self.client.get("/api/backup").json
+        variants = [{}, {**backup, "app": "Other"}, {**backup, "version": 2},
+                    {**backup, "version": True}, {**backup, "items": None},
+                    {**backup, "last_item_id": 999}, {**backup, "last_item_id": True},
+                    {**backup, "items": [backup["items"][0]] * 2},
+                    {**backup, "items": [None]}]
+        missing_last = copy.deepcopy(backup)
+        del missing_last["last_item_id"]
+        variants.append(missing_last)
+        for field, value in (("id", True), ("id", 2**63), ("id", -1),
+                             ("url", "javascript:alert(1)"), ("description", "x" * 2001),
+                             ("description", "\ud800"), ("is_read", 1), ("starred", None),
+                             ("created_at", "bad date"), ("created_at", [])):
+            invalid = copy.deepcopy(backup)
+            invalid["items"][0][field] = value
+            variants.append(invalid)
+        incomplete = copy.deepcopy(backup)
+        del incomplete["items"][0]["url"]
+        variants.append(incomplete)
+        for invalid in variants:
+            self.assertEqual(self.write("/api/restore", invalid).status_code, 400)
+            self.assertEqual(self.client.get("/api/backup").json, backup)
+        self.assertEqual(self.client.post("/api/restore", json=backup).status_code, 403)
+        self.assertEqual(self.client.post("/api/restore", data="not JSON", content_type="application/json", headers={"X-Later": "1"}).status_code, 400)
+        self.assertEqual(self.client.get("/api/backup").json, backup)
+
+    def test_restore_upload_limit_is_separate_from_entry_limit(self):
+        self.add()
+        backup = self.client.get("/api/backup").json
+        source = backup["items"][0]
+        backup["items"] = [{**source, "id": n + 1, "description": "x" * 2000} for n in range(20)]
+        self.assertGreater(len(json.dumps(backup)), 16 * 1024)
+        self.assertEqual(self.write("/api/restore", backup).status_code, 200)
+        before = self.client.get("/api/backup").json
+        self.assertEqual(self.write("/api/restore", {"padding": "x" * (10 * 1024 * 1024)}).status_code, 413)
+        self.assertEqual(self.client.get("/api/backup").json, before)
+
+    def test_restore_database_failure_rolls_back(self):
+        self.add()
+        self.pop()
+        backup = self.client.get("/api/backup").json
+        with closing(sqlite3.connect(self.database)) as connection:
+            connection.execute("CREATE TRIGGER reject_restore BEFORE INSERT ON items BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+            connection.commit()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.write("/api/restore", backup)
+        self.assertEqual(self.client.get("/api/backup").json, backup)
 
     def test_concurrent_unread_pops_are_unique(self):
         for n in range(12):

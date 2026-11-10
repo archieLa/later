@@ -75,4 +75,28 @@ $("add-form").addEventListener("submit", async event => {
   try { await api("/api/items", "POST", {url: $("url").value, description: $("description").value}); event.target.reset(); await refresh(); message("Saved for later."); $("url").focus(); }
   catch (error) { message(error.message, true); } finally { button.disabled = false; }
 });
+$("restore-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const file = $("backup-file").files[0];
+  if (!file) return;
+  const button = event.target.querySelector("button");
+  button.disabled = true;
+  try {
+    if (file.size > 10 * 1024 * 1024) throw new Error("Backup files must be under 10 MB.");
+    let backup;
+    try { backup = JSON.parse(await file.text()); }
+    catch { throw new Error("Choose a valid Later JSON backup file."); }
+    if (!backup || backup.app !== "Later" || backup.version !== 1 || !Array.isArray(backup.items)) {
+      throw new Error("Choose a supported Later backup (version 1).");
+    }
+    if (!window.confirm(`Restore ${backup.items.length} saved links from “${file.name}”? This replaces all current links, favorites, and read history.`)) return;
+    const result = await api("/api/restore", "POST", backup);
+    await refresh();
+    if (!$("starred").hidden) await loadStarred();
+    event.target.reset();
+    message(`Backup restored. ${result.restored} saved links loaded.`);
+    $("message").scrollIntoView({block: "center", behavior: "smooth"});
+  } catch (error) { message(error.message, true); $("message").scrollIntoView({block: "center", behavior: "smooth"}); }
+  finally { button.disabled = false; }
+});
 refresh().catch(error => message(error.message, true));

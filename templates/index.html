@@ -11,5 +11,9 @@
 </section>
 <section id="add" class="view" hidden><div class="eyebrow">SAVE A LITTLE SOMETHING</div><h1>For another<br>moment.</h1><form id="add-form"><label for="url">Link</label><input id="url" name="url" type="url" placeholder="https://…" required maxlength="4096" autocomplete="url"><label for="description">Description <span class="muted">(optional)</span></label><textarea id="description" name="description" rows="3" maxlength="2000" placeholder="What caught your eye?"></textarea><button class="primary" type="submit">Save for later +</button></form></section>
 <section id="starred" class="view" hidden><div class="eyebrow">THE KEEPERS</div><h1>Worth coming<br>back to.</h1><p class="intro">Your favorites, all in one place.</p><button id="pop-starred" class="primary">Pick & open a starred link ↗</button><div id="starred-list"></div></section>
-<footer>Saved for later. Ready when you are.</footer>
+<footer><details id="backups"><summary>Backups</summary>
+<p>Save your links, read history, favorites, and last pick in one file.</p>
+<a class="button" href="/api/backup" download>Download backup ↓</a>
+<form id="restore-form"><label for="backup-file">Load a backup</label><input id="backup-file" type="file" accept=".json,application/json" required><p class="muted">Restoring replaces all current links. Download a backup first if you want to keep them. Maximum file size: 10 MB.</p><button type="submit">Restore backup ↑</button></form>
+</details><p>Saved for later. Ready when you are.</p></footer>
 </main></body></html>

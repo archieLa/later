@@ -1,5 +1,6 @@
 """Optional end-to-end checks: pip install playwright; playwright install."""
 import argparse
+import json
 import sys
 import tempfile
 import threading
@@ -77,8 +78,39 @@ def run(engines, screenshots=None):
                     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
                     if screenshots:
                         page.screenshot(path=str(screenshots / f"{engine}-mobile.png"), full_page=True)
+                    page.locator("#backups summary").click()
+                    with page.expect_download() as download:
+                        page.get_by_role("link", name="Download backup").click()
+                    saved_file = Path(temp) / "downloaded.json"
+                    download.value.save_as(saved_file)
+                    backup = json.loads(saved_file.read_text())
+                    assert backup["app"] == "Later" and len(backup["items"]) == 1
+                    page.get_by_role("button", name="Add a link", exact=True).click()
+                    page.get_by_label("Link", exact=True).fill("https://example.com/extra")
+                    page.get_by_role("button", name="Save for later +").click()
+                    expect(page.get_by_role("status")).to_have_text("Saved for later.")
+                    # Cancel must leave the queue untouched.
+                    page.locator("#backup-file").set_input_files(saved_file)
+                    page.once("dialog", lambda dialog: dialog.dismiss())
+                    page.get_by_role("button", name="Restore backup", exact=False).click()
+                    expect(page.get_by_role("button", name="Restore backup", exact=False)).to_be_enabled()
+                    expect(page.locator("#counts")).to_have_text("1 unread · 2 saved")
+                    page.once("dialog", lambda dialog: dialog.accept())
+                    page.get_by_role("button", name="Restore backup", exact=False).click()
+                    expect(page.get_by_role("status")).to_have_text("Backup restored. 1 saved links loaded.")
+                    expect(page.locator("#counts")).to_have_text("0 unread · 1 saved")
+                    page.reload()
+                    expect(page.locator("#counts")).to_have_text("0 unread · 1 saved")
+                    page.locator("#backups summary").click()
+                    page.locator("#backup-file").set_input_files({"name": "bad.json", "mimeType": "application/json", "buffer": b"not json"})
+                    page.get_by_role("button", name="Restore backup", exact=False).click()
+                    expect(page.get_by_role("status")).to_have_text("Choose a valid Later JSON backup file.")
+                    expect(page.locator("#counts")).to_have_text("0 unread · 1 saved")
+                    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                    if screenshots:
+                        page.screenshot(path=str(screenshots / f"{engine}-backups-mobile.png"), full_page=True)
                     assert not errors, errors
-                    print(f"PASS {engine}: add, pop/new tab, read state, star/unstar, reload, reopen, starred pop, empty queue, blocked popup, responsive layout")
+                    print(f"PASS {engine}: add, pop/new tab, read state, star/unstar, reload, reopen, starred pop, empty queue, blocked popup, responsive layout, backup download/upload, cancel restore, invalid file")
                 finally:
                     browser.close()
                     server.shutdown()
