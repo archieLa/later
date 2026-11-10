@@ -2,6 +2,24 @@
 
 A tiny, self-hosted queue for articles, YouTube videos, and anything else with a link. Flask, SQLite, and responsive vanilla HTML/CSS/JS. No accounts, external services, AI, or build step.
 
+## Screenshots
+
+Pick a saved link and star the keepers:
+
+![Pick a link, with unread selection and the last picked item](docs/screenshots/pick-a-link.png)
+
+Save a URL with an optional description:
+
+![Add a link form](docs/screenshots/add-a-link.png)
+
+Browse favorites or randomly revisit one:
+
+![Starred links view](docs/screenshots/starred.png)
+
+The mobile layout includes download and restore controls for backups:
+
+<img src="docs/screenshots/mobile-backups.png" alt="Mobile view with backup download and restore controls" width="390">
+
 ## Run
 
 Requires Python 3.10+.
