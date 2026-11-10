@@ -1,0 +1,21 @@
+[Unit]
+Description=Later personal link queue
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/later
+ExecStart=/home/YOUR_USER/later/.venv/bin/python /home/YOUR_USER/later/app.py
+Environment=LATER_HOST=0.0.0.0
+Environment=LATER_PORT=5050
+Environment=LATER_DATABASE=/home/YOUR_USER/later/instance/later.sqlite3
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
